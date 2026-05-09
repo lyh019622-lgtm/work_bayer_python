@@ -1,0 +1,65 @@
+import pandas as pd
+
+# ===================== 你的文件路径 =====================
+extractdate_file = r"D:\rpa\优思明每日访客数\商品明细.xlsx"
+content_file = r"D:\rpa\优思明每日访客数\商品360.xlsx"
+
+# 1. 加载数据
+df_extract = pd.read_excel(extractdate_file, header=None)
+df_content = pd.read_excel(content_file, header=None)
+
+# 商品明细表：保持不变
+df_extract.columns = ['商品名称', '商品ID', '支付金额']
+
+# ===================== 重点修改部分 =====================
+# 修改为“SKU销售情况”相关的 7 个字段
+df_content.columns = [
+    'SKU销售情况',
+    'skuID',
+    '支付金额（占比）',
+    '支付件数',
+    '支付用户数',
+    '支付新客数',
+    '支付老客数'
+]
+
+# 2. 处理 content 表的 ID 向上填充逻辑
+def is_id(val):
+    s = str(val).strip()
+    # 逻辑：如果是数字且长度大于8，判定为商品ID
+    return s if (s.isdigit() and len(s) > 8) else None
+
+# 注意：这里改为从 'SKU销售情况' 列提取 ID（原代码是从第一列提取）
+df_content['商品ID'] = df_content['SKU销售情况'].apply(is_id)
+df_content['商品ID'] = df_content['商品ID'].bfill()
+
+# 清理 content 表：删掉纯 ID 的标题行，保留明细数据行
+df_content_clean = df_content[df_content['SKU销售情况'].astype(str).str.strip() != df_content['商品ID']].copy()
+# =======================================================
+
+# 强制 ID 为字符串，确保匹配成功
+df_extract['商品ID'] = df_extract['商品ID'].astype(str).str.strip()
+df_content_clean['商品ID'] = df_content_clean['商品ID'].astype(str).str.strip()
+
+# 3. 合并数据
+merged_df = pd.merge(df_extract, df_content_clean, on='商品ID', how='left')
+
+# 4. 重复商品信息置空（为了表格美观，只保留每个商品组的第一
+group_cols = ['商品名称', '商品ID', '支付金额']
+merged_df.loc[merged_df.duplicated(subset=group_cols), group_cols] = ""
+
+# 5. 保存结果
+output_path = r"D:\rpa\优思明每日访客数\优思明支付金额0501-0507.xlsx"
+merged_df.to_excel(output_path, index=False)
+
+print(f"处理完成！结果已保存至: {output_path}")
+
+# ===================== 6. 抹除原始文件内容 =====================
+# 通过写入空的 DataFrame 来抹除内容，同时保留文件本身
+try:
+    empty_df = pd.DataFrame()
+    empty_df.to_excel(extractdate_file, index=False, header=False)
+    empty_df.to_excel(content_file, index=False, header=False)
+    print("✓ 原始输入文件（商品明细、商品360）内容已成功抹除。")
+except Exception as e:
+    print(f"⚠️ 抹除原始文件时出错（请检查文件是否被 Excel 打开）: {e}")
